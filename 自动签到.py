@@ -168,8 +168,8 @@ if __name__=="__main__":
 
     account=sys.argv[1] #获取参数
     accounts=account.split("#"); #分开用户
-    #171106013pwd:057996@liu#181106031pwd:1398943abd
-    #print(accounts)
+
+    print(accounts)
     for one in accounts:
         account=one.split("pwd:")#分开用户账号和密码
         #print(account)
