@@ -168,7 +168,7 @@ if __name__=="__main__":
 
     account=sys.argv[1] #获取参数
     accounts=account.split("#"); #分开用户
-
+    #打印账号
     print(accounts)
     for one in accounts:
         account=one.split("pwd:")#分开用户账号和密码
