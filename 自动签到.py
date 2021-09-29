@@ -167,6 +167,7 @@ if __name__=="__main__":
     print("联网成功")
 
     account=sys.argv[1] #获取参数
+    print(account)
     accounts=account.split("#"); #分开用户
     #打印账号
     print(accounts)
