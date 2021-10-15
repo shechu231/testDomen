@@ -35,23 +35,28 @@ def getCookie(useranme,password):
     chrome_options.add_argument('--headless')
     chrome_options.add_argument('--disable-gpu')
     bro = webdriver.Chrome(executable_path="./chromedriver",options=chrome_options)
-    # 登陆的网址
-    bro.get('http://authserver.yibinu.edu.cn/authserver/login?service=https%3A%2F%2Fyibinu.campusphere.net%2Fportal%2Flogin')
-    sleep(10)
-    # 模拟登陆开始
-    bro.find_element_by_id("username").send_keys(useranme)
-    bro.find_element_by_id("password").send_keys(password)
-    bro.find_elements_by_xpath('//form[@id="casLoginForm"]//button[@type="submit"]')[0].click()
-    sleep(6)
-    # 获取cookie
-    cookies = bro.get_cookies()
-    # print(cookies)
     cookieStr=""
-    for cookie in cookies:
-        cookieStr+=cookie["name"]+"="+cookie["value"]+";"
-    print(cookieStr[:-1])
-    print("模拟浏览器登陆结束")
-    bro.close()
+    try:
+        # 登陆的网址
+        bro.get('http://authserver.yibinu.edu.cn/authserver/login?service=https%3A%2F%2Fyibinu.campusphere.net%2Fportal%2Flogin')
+        sleep(10)
+        # 模拟登陆开始
+        bro.find_element_by_id("username").send_keys(useranme)
+        bro.find_element_by_id("password").send_keys(password)
+        bro.find_elements_by_xpath('//form[@id="casLoginForm"]//button[@type="submit"]')[0].click()
+        sleep(6)
+        # 获取cookie
+        cookies = bro.get_cookies()
+        # print(cookies)
+        for cookie in cookies:
+            cookieStr+=cookie["name"]+"="+cookie["value"]+";"
+        print(cookieStr[:-1])
+        print("模拟浏览器登陆结束")
+        bro.quit()
+    except:
+        bro.quit()
+        sleep(2)
+        x=0/0
     return cookieStr[:-1]
 
 def getCpdailyApis():
@@ -211,6 +216,3 @@ if __name__=="__main__":
         account=one.split("pwd:")#分开用户账号和密码
         #print(account)
         sign(account[0],account[1])
-
-    
-    
