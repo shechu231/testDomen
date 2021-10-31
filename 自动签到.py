@@ -8,6 +8,9 @@ from time import sleep
 from selenium.webdriver.chrome.options import Options
 import socket
 import os
+import uuid
+import base64
+from pyDes import des, CBC, PAD_PKCS5
 #判断设备是否联网
 def isNetOK(testserver):
     s = socket.socket()
@@ -103,7 +106,140 @@ def getSession(apis,cookieStr):
     session.cookies = requests.utils.cookiejar_from_dict(cookies, cookiejar=None, overwrite=True)
     # print(session.cookies)
     return session
-def submitForm(session, apis):
+
+def resJsonEncode(res):
+    '''响应内容的json解析函数(换而言之，就是res.json()的小优化版本)'''
+    try:
+        return res.json()
+    except Exception as e:
+        raise Exception(
+            f'响应内容以json格式解析失败({e})，响应内容:\n\n{res.text}')
+
+# 填充表单
+def fillForm(form,userInfo):
+    index = 0
+    for formItem in form[:]:
+        # 只处理必填项
+        if formItem['isRequired']:
+            userForm = userInfo['forms'][index]['form']
+            # 判断是否忽略该题
+            if 'ignore' in userForm and userForm['ignore']:
+                # 设置显示为false
+                formItem['show'] = False
+                # 清空所有的选项
+                if 'fieldItems' in formItem:
+                    formItem['fieldItems'].clear()
+                index += 1
+                continue
+            # 判断用户是否需要检查标题
+            if userInfo['checkTitle'] == 1:
+                # 如果检查到标题不相等
+                if formItem['title'].strip() != userForm['title'].strip():
+                    raise Exception(
+                        f'\r\n第{index + 1}个配置项的标题不正确\r\n您的标题为："{userForm["title"]}"\r\n系统的标题为："{formItem["title"]}"')
+            # 填充多出来的参数（新版增加了四个参数，暂时不知道作用）
+            formItem['show'] = True
+            formItem['formType'] = '0'  # 盲猜是任务类型、待确认
+            formItem['sortNum'] = str(formItem['sort'])  # 盲猜是sort排序
+            formItem['logicShowConfig'] = {}
+            preSelect = []
+            # 文本选项直接赋值
+            if formItem['fieldType'] in ['1', '5', '6', '7']:
+                formItem['value'] = userForm['value']
+            # 单选框填充
+            elif formItem['fieldType'] == '2':
+                # 定义单选框的wid
+                itemWid = ''
+                # 单选需要移除多余的选项
+                fieldItems = formItem['fieldItems']
+                for fieldItem in fieldItems[:]:
+                    if 'value' not in userForm:
+                        raise Exception(
+                            f"第{index + 1}个题目出错，题目标题为{formItem['sort']}{formItem['title']}")
+                    if fieldItem['content'] != userForm['value']:
+                        fieldItems.remove(fieldItem)
+                        # 如果之前被选中
+                        if fieldItem['isSelected']:
+                            preSelect.append(fieldItem['content'])
+                    else:
+                        itemWid = fieldItem['itemWid']
+                        # 当该字段需要填写且存在otherItemType类型时（其他字段）
+                        if fieldItem['isOtherItems'] and fieldItem['otherItemType'] == '1':
+                            # 当配置文件中不存在other字段时抛出异常
+                            if 'other' not in userForm:
+                                raise Exception(
+                                    f'\r\n第{index + 1}个配置项的选项不正确，该字段存在“other”字段，请在配置文件“title，value”下添加一行“other”字段并且填上对应的值'
+                                )
+                            fieldItem['contentExtend'] = userForm['other']
+                if itemWid == '':
+                    raise Exception(
+                        f'\r\n第{index + 1}个配置项的选项不正确，该选项为单选，且未找到您配置的值\r\n您上次的选值为：{preSelect}'
+                    )
+                formItem['value'] = itemWid
+            # 多选填充
+            elif formItem['fieldType'] == '3':
+                # 定义单选框的wid
+                itemWidArr = []
+                fieldItems = formItem['fieldItems']
+                userItems = userForm['value'].split('|')
+                for fieldItem in fieldItems[:]:
+                    if fieldItem['content'] in userItems:
+                        itemWidArr.append(fieldItem['itemWid'])
+                        # 当该字段需要填写且存在otherItemType类型时（其他字段）
+                        if fieldItem['isOtherItems'] and fieldItem['otherItemType'] == '1':
+                            # 当配置文件中不存在other字段时抛出异常
+                            if 'other' not in userForm:
+                                raise Exception(
+                                    f'\r\n第{index + 1}个配置项的选项不正确，该字段存在“other”字段，请在配置文件“title，value”下添加一行“other”字段并且填上对应的值'
+                                )
+                            fieldItem['contentExtend'] = userForm['other']
+                    else:
+                        fieldItems.remove(fieldItem)
+                        if fieldItem['isSelected']:
+                            preSelect.append(fieldItem['content'])
+                # 若多选一个都未选中
+                if len(itemWidArr) == 0:
+                    raise Exception(
+                        f'\r\n第{index + 1}个配置项的选项不正确，该选项为多选，且未找到您配置的值\r\n您上次的选值为：{preSelect}'
+                    )
+                formItem['value'] = ','.join(itemWidArr)
+                # 填充其他信息
+                formItem.setdefault('http', {
+                    'defaultOptions': {
+                        'customConfig': {
+                            'pageNumberKey': 'pageNumber',
+                            'pageSizeKey': 'pageSize',
+                            'pageDataKey': 'pageData',
+                            'pageTotalKey': 'pageTotal',
+                            'data': 'datas',
+                            'codeKey': 'code',
+                            'messageKey': 'message'
+                        }
+                    }
+                })
+                formItem['uploadPolicyUrl'] = '/wec-counselor-collector-apps/stu/oss/getUploadPolicy'
+                formItem['saveAttachmentUrl'] = '/wec-counselor-collector-apps/stu/collector/saveAttachment'
+                formItem['previewAttachmentUrl'] = '/wec-counselor-collector-apps/stu/collector/previewAttachment'
+                formItem['downloadMediaUrl'] = '/wec-counselor-collector-apps/stu/collector/downloadMedia'
+            else:
+                raise Exception(
+                    f'\r\n第{index + 1}个配置项属于未知配置项，请反馈'
+                )
+            index += 1
+        else:
+            # 移除非必填选项
+            form.remove(formItem)
+
+def submitForm(session, apis,user):
+
+    
+    headers = session.headers
+    headers['Content-Type'] = 'application/json'
+    queryUrl = 'https://{host}/wec-counselor-collector-apps/stu/collector/queryCollectorProcessingList'.format(host=apis['host'])
+    params = {
+        'pageSize': 20,
+        "pageNumber": 1
+    }
     headers = {
         'Accept': 'application/json, text/plain, */*',
         'User-Agent': 'Mozilla/5.0 (Linux; Android 4.4.4; OPPO R11 Plus Build/KTU84P) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/33.0.0.0 Safari/537.36 yiban/8.1.11 cpdaily/8.1.11 wisedu/8.1.11',
@@ -112,72 +248,75 @@ def submitForm(session, apis):
         'Accept-Language': 'zh-CN,en-US;q=0.8',
         'Content-Type': 'application/json;charset=UTF-8'
     }
-    queryCollectWidUrl = 'https://{host}/wec-counselor-collector-apps/stu/collector/queryCollectorProcessingList'.format(
-        host=apis['host'])
-    params = {
-        'pageSize': 6,
-        'pageNumber': 1
+    res = session.post(queryUrl, data=json.dumps(
+            params), headers=headers, verify=False)
+    res = resJsonEncode(res)
+    
+    if res['datas']['totalSize'] < 1:
+            raise Exception('查询表单失败，当前没有信息收集任务哦！')
+    collectWid = res['datas']['rows'][0]['wid'] #表单id
+    formWid = res['datas']['rows'][0]['formWid']
+    detailUrl = 'https://{host}/wec-counselor-collector-apps/stu/collector/detailCollector'.format(host=apis['host'])
+    res = session.post(detailUrl, headers=headers, data=json.dumps({'collectorWid': collectWid}),
+                                verify=False)
+    res = resJsonEncode(res)
+    schoolTaskWid = res['datas']['collector']['schoolTaskWid']
+    getFormUrl = 'https://{host}/wec-counselor-collector-apps/stu/collector/getFormFields'.format(host=apis['host'])
+    params = {"pageSize": 100, "pageNumber": 1,
+                  "formWid": formWid, "collectorWid": collectWid}
+    res = session.post(
+            getFormUrl, headers=headers, data=json.dumps(params), verify=False)
+    res = resJsonEncode(res)
+    form = res['datas']['rows']
+    
+    fillForm(form,user)
+    forBody = {
+        "formWid": formWid, "address": user['address'], "collectWid": collectWid,
+        "schoolTaskWid": schoolTaskWid, "form": form, "uaIsCpadaily": True,
+        "latitude": user['lat'], 'longitude': user['lon']
     }
-    res = session.post(queryCollectWidUrl, headers=headers,
-                       data=json.dumps(params))
-    if res.status_code!=200:
-        os.system("pause")
-    #print(res.text)
-    collect=json.loads(res.text)
 
-    #获取详细信息
-    detail = 'https://{host}/wec-counselor-collector-apps/stu/collector/detailCollector'.format(
-        host=apis['host'])
-    res = session.post(url=detail,headers=headers,data=json.dumps({'collectorWid':collect["datas"]['rows'][0]['wid']}))
-    schooleTaskWid = json.loads(res.text)
-    print(schooleTaskWid['datas']['collector']['schoolTaskWid'])
-    print(collect["datas"]['rows'][0]['wid'])
-    print(collect['datas']['rows'][0]['formWid'])
+    #params_form = form
+
     
-    getForm='https://{host}/wec-counselor-collector-apps/stu/collector/getFormFields'.format(
-        host=apis['host'])
-    params = {"pageSize":100,"pageNumber":1,"formWid":collect['datas']['rows'][0]['formWid'],"collectorWid":collect["datas"]['rows'][0]['wid']}
-    
-    res = session.post(url=getForm,headers=headers,data=json.dumps(params))
-    datas_rows = json.loads(res.text)
-    #print(datas_rows)
-    # for form_Content in datas_row['datas']['rows']:
-    #     if form_Content['isRequired']==True:
-    #         form_value="四川省/宜宾市/翠屏区/临港校区"
-    datas_rows['datas']['rows'][0]['value']="四川省/宜宾市/翠屏区/临港校区"
-
-    item_list=datas_rows['datas']['rows'][1]['fieldItems'][1]
-    item_list['isSelected']=1
-    datas_rows['datas']['rows'][1]['fieldItems']=[item_list]
-    #体温
-    datas_rows['datas']['rows'][2]['value']="36"
-    datas_rows['datas']['rows'][3]['value']="36"
-    datas_rows['datas']['rows'][4]['value']="36"
-    #身体状况
-    item_list=datas_rows['datas']['rows'][5]['fieldItems'][0]
-    item_list['isSelected']=1
-    datas_rows['datas']['rows'][5]['fieldItems']=[item_list]
-    #print(datas_rows['datas']['rows'][5]['fieldItems'])
-    #是否返校
-    item_list=datas_rows['datas']['rows'][6]['fieldItems'][1]
-    item_list['isSelected']=1
-    datas_rows['datas']['rows'][6]['fieldItems']=[item_list]
-    #print(datas_rows['datas']['rows'][6]['fieldItems'])
-    for i in range(7,12):
-        if datas_rows['datas']['rows'][i]['fieldType']=='2':
-            datas_rows['datas']['rows'][i]['fieldItems']=[]
-
-    params_form={"formWid":collect['datas']['rows'][0]['formWid'],"address":"签到地点","collectWid":collect["datas"]['rows'][0]['wid'],"schoolTaskwid":schooleTaskWid['datas']['collector']['schoolTaskWid'],"form":datas_rows['datas']['rows'],"uaIsCpadaily":True}
     #print(params_form)
-    #填表单
-    #form='{"formWid":"717","address":"签到地点","collectWid":"'+collect["datas"]['rows'][0]['wid']+'","schoolTaskWid":"174319","form":[{"wid":"10405","formWid":"717","fieldType":"7","title":"今日具体所在地","description":"","isRequired":true,"hasOtherItems":false,"sort":1,"colName":"field001","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":null,"maxValue":null,"decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":1,"value":"四川省/宜宾市/翠屏区/临港校区","show":true,"formType":"0","sortNum":"1","logicShowConfig":{}},{"wid":"10406","formWid":"717","fieldType":"2","title":"是否在校","description":"","isRequired":true,"hasOtherItems":false,"sort":2,"colName":"field002","fieldItems":[{"itemWid":"15513","content":"否","imageUrl":null,"isOtherItems":false,"contentExtend":"","otherItemType":"1","basicConfig":null,"showLogic":"","isAnswer":false,"score":null,"isSelected":1,"selectCount":null,"totalCount":0}],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":null,"maxValue":null,"decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":2,"value":"","show":true,"formType":"0","sortNum":"2","logicShowConfig":{}},{"wid":"10407","formWid":"717","fieldType":"5","title":"上午体温","description":"","isRequired":true,"hasOtherItems":false,"sort":3,"colName":"field003","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":"35.0000","maxValue":"42.0000","decimals":5,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":3,"value":"36","show":true,"formType":"0","sortNum":"3","logicShowConfig":{}},{"wid":"10408","formWid":"717","fieldType":"5","title":"下午体温","description":"","isRequired":true,"hasOtherItems":false,"sort":4,"colName":"field004","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":"35.0000","maxValue":"42.0000","decimals":5,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":4,"value":"36","show":true,"formType":"0","sortNum":"4","logicShowConfig":{}},{"wid":"10409","formWid":"717","fieldType":"5","title":"晚上体温","description":"","isRequired":true,"hasOtherItems":false,"sort":5,"colName":"field005","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":"35.0000","maxValue":"42.0000","decimals":5,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":5,"value":"36","show":true,"formType":"0","sortNum":"5","logicShowConfig":{}},{"wid":"10410","formWid":"717","fieldType":"2","title":"身体状况","description":"","isRequired":true,"hasOtherItems":false,"sort":6,"colName":"field006","fieldItems":[{"itemWid":"15514","content":"身体健康","imageUrl":null,"isOtherItems":false,"contentExtend":"","otherItemType":"1","basicConfig":null,"showLogic":"","isAnswer":false,"score":null,"isSelected":1,"selectCount":null,"totalCount":0}],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":null,"maxValue":null,"decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":6,"value":"","show":true,"formType":"0","sortNum":"6","logicShowConfig":{}},{"wid":"10411","formWid":"717","fieldType":"2","title":"是否今日返校？","description":"","isRequired":true,"hasOtherItems":false,"sort":7,"colName":"field007","fieldItems":[{"itemWid":"15521","content":"否","imageUrl":null,"isOtherItems":false,"contentExtend":"","otherItemType":"1","basicConfig":null,"showLogic":"","isAnswer":false,"score":null,"isSelected":1,"selectCount":null,"totalCount":0}],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":null,"maxValue":null,"decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":7,"value":"","show":true,"formType":"0","sortNum":"7","logicShowConfig":{}},{"wid":"10412","formWid":"717","fieldType":"6","title":"到校时间","description":"","isRequired":false,"hasOtherItems":false,"sort":8,"colName":"field008","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":null,"maxValue":null,"decimals":null,"dateFormatType":"1","dateType":"0","pointTime":null,"minTime":"1900-01-01 00:00","maxTime":"2099-12-31 23:59","extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":8,"value":"","show":true,"formType":"0","sortNum":"8","logicShowConfig":{}},{"wid":"10413","formWid":"717","fieldType":"2","title":"到校方式","description":"","isRequired":false,"hasOtherItems":false,"sort":9,"colName":"field009","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":null,"maxValue":null,"decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":9,"value":"","show":true,"formType":"0","sortNum":"9","logicShowConfig":{}},{"wid":"10414","formWid":"717","fieldType":"2","title":"到校是否有同行人员","description":"","isRequired":false,"hasOtherItems":false,"sort":10,"colName":"field010","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":null,"maxValue":null,"decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":10,"value":"","show":true,"formType":"0","sortNum":"10","logicShowConfig":{}},{"wid":"10415","formWid":"717","fieldType":"1","title":"到校同行人员姓名","description":"","isRequired":false,"hasOtherItems":false,"sort":11,"colName":"field011","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":"1","maxValue":"50","decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":11,"value":"","show":true,"formType":"0","sortNum":"11","logicShowConfig":{}},{"wid":"10416","formWid":"717","fieldType":"1","title":"到校同行人员身份证号","description":"","isRequired":false,"hasOtherItems":false,"sort":12,"colName":"field012","fieldItems":[],"scoringRule":"-1","score":null,"answerContent":null,"basicConfig":{"minValue":"1","maxValue":"100","decimals":null,"dateFormatType":null,"dateType":null,"pointTime":null,"minTime":null,"maxTime":null,"extremeLabel":null,"level":null,"isReversal":null,"leftValue":null,"rightValue":null,"voteType":null,"voteMinValue":null,"voteMaxValue":null},"logicWid":12,"value":"","show":true,"formType":"0","sortNum":"12","logicShowConfig":{}}],"uaIsCpadaily":true,"latitude":30.56559,"longitude":104.065668}'
-
+    forSubmit = {
+        "appVersion": "8.1.14",
+        "deviceId": str(uuid.uuid1()),
+        "lat": "30.574166",
+        "lon": "114.244845",
+        "model": "OPPO R11 Plus",
+        "systemName": "android",
+        "systemVersion": "11",
+        "userId": user['username'],
+    }
+    extension = {
+        "lon": "114.244845",
+        "model": "OPPO R11 Plus",
+        "appVersion": "8.1.14",
+        "systemVersion": "4.4.4",
+        "userId": "181106031",
+        "systemName": "android",
+        "lat": "30.574166",
+        "deviceId": str(uuid.uuid1())
+    }
+    #处理加密
+    forBody = json.dumps(forBody, ensure_ascii=False)
+    print('正在请求加密数据...')
+    res = session.post("https://api.ruoli.cc/wise/getEncryption", params=forSubmit, data=forBody.encode("utf-8"), verify=False)
+    print(res.text)
+    res = res.json()
+    forSubmit['version'] = 'first_v2'
+    forSubmit['calVersion'] = 'firstv'
+    forSubmit['bodyString'] = res['data']['bodyString']
+    forSubmit['sign'] = res['data']['sign']
+    #print(res['data']['bodyString'])
     headers={
         'tenantId':'1018789912947381',
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; PACM00 Build/QP1A.190711.020; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0',
         'CpdailyStandAlone': '0',
         'extension': '1',
-        'Cpdaily-Extension': '6XkC1UAk07fK0uTaGPUu77i/+r7j/o1JQ/XygRxee2LMiX5H+w/BOrLr7jYW HhkJ4NsXsQgSis/0/xM9y3Nvt+11z190ul2ht49jixDTvDZfO1ewPSVkb3Kp axSzywZFRSPyEXunxbsDs2Hzstytw8WP0G6iXRrkVQScv63hVMFOMDCDlSXR BS2AA3Dg7govQoaGgSaGX8cuLc7JMViofZXWvuSwVcuAMT94l/67fxjt8kQr 1ANNQdz5e3tNFQvp',
+        'Cpdaily-Extension': DESEncrypt(json.dumps(extension)),
         'Content-Type': 'application/json; charset=utf-8',
         'Host': 'yibinu.campusphere.net',
         'Connection': 'Keep-Alive',
@@ -185,21 +324,27 @@ def submitForm(session, apis):
     }
     # 签到
     # print(json.loads(form))
-    res = session.post(url='https://yibinu.campusphere.net/wec-counselor-collector-apps/stu/collector/submitForm'.format(host=apis['host']),headers=headers,json=params_form)
-    if res.status_code!=200:
-        os.system("pause")
-    print(res.text)
 
-    result=json.loads(res.text)
-    if(result['message']!="SUCCESS"):
-        x=0/0
-def sign(account,password):
+    res = session.post(url='https://yibinu.campusphere.net/wec-counselor-collector-apps/stu/collector/submitForm'.format(host=apis['host']),headers=headers,data=json.dumps(forSubmit))
+
+    print(res.text)
+    #result=json.loads(res.text)
+
+# DES加密
+def DESEncrypt(s, key='b3L26XNL'):
+    key = key
+    iv = b"\x01\x02\x03\x04\x05\x06\x07\x08"
+    k = des(key, CBC, iv, pad=None, padmode=PAD_PKCS5)
+    encrypt_str = k.encrypt(s)
+    return base64.b64encode(encrypt_str).decode()
+
+def sign(account,password,user):
     cookies=getCookie(account,password)#获取cookie值
     #print(cookies)
     print(getCpdailyApis())
     apis=getCpdailyApis()#获取登陆的网址，网址是固定的
     session=getSession(getCpdailyApis(),cookies)#传递cookie值
-    submitForm(session,apis)#提交表单,进行签到
+    submitForm(session,apis,user)#提交表单,进行签到
     print("************************************************************************")
 if __name__=="__main__":
     while(isNetChainOK()!=True):
@@ -207,12 +352,21 @@ if __name__=="__main__":
         sleep(1)
     print("联网成功")
 
+    
+    users={'author': '若离QQ：2909998156', 'sendType': 0, 'emailApiUrl': 'https://api.ruoli.cc/sendMail', 'myQmsgKey': '', 'encryptApi': 'https://api.ruoli.cc/wise/getEncryption', 'users': []}
+    
     account=sys.argv[1] #获取参数
     print(account)
     accounts=account.split("#"); #分开用户
-    #打印账号
-    print(accounts)
     for one in accounts:
+        user = {'user': {'type': 1, 'schoolName': '宜宾学院', 'username': '', 'password': '', 'address': '四川省/宜宾市/翠屏区/临港校区', 'sendKey': '', 'lon': 104.616858, 'lat': 28.793022, 'checkTitle': 1, 'proxy': '', 'isOffset': True, 'forms': [{'form': {'title': '今日具体所在地', 'value': '四川省/宜宾市/翠屏区/临港校区'}}, {'form': {'title': '是否在校', 'value': '是'}}, {'form': {'title': '上午体温', 'value': 36.2}}, {'form': {'title': '下午体温', 'value': 36.4}}, {'form': {'title': '晚上体温', 'value': 36.1}}, {'form': {'title': '身体状况', 'value': '身体健康'}}, {'form': {'title': '是否今日返校？', 'value': '否'}}]}}
         account=one.split("pwd:")#分开用户账号和密码
         #print(account)
-        sign(account[0],account[1])
+        user['user']["username"]=account[0]
+        user["user"]["password"]=account[1]
+        users['users'].append(user)
+        
+    
+    for i in users["users"]:
+        #print(i["user"]["username"],i["user"]["password"],i["user"])
+        sign(i["user"]["username"],i["user"]["password"],i["user"])
