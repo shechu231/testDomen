@@ -304,7 +304,7 @@ def submitForm(session, apis,user):
     forBody = json.dumps(forBody, ensure_ascii=False)
     print('正在请求加密数据...')
     res = session.post("https://api.ruoli.cc/wise/getEncryption", params=forSubmit, data=forBody.encode("utf-8"), verify=False)
-    print(res.text)
+    #print(res.text)
     res = res.json()
     forSubmit['version'] = 'first_v2'
     forSubmit['calVersion'] = 'firstv'
@@ -368,5 +368,5 @@ if __name__=="__main__":
         
     
     for i in users["users"]:
-        #print(i["user"]["username"],i["user"]["password"],i["user"])
+        print(i["user"]["username"],i["user"]["password"],i["user"])
         sign(i["user"]["username"],i["user"]["password"],i["user"])
