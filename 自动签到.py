@@ -328,7 +328,9 @@ def submitForm(session, apis,user):
     res = session.post(url='https://yibinu.campusphere.net/wec-counselor-collector-apps/stu/collector/submitForm'.format(host=apis['host']),headers=headers,data=json.dumps(forSubmit))
 
     print(res.text)
-    #result=json.loads(res.text)
+    result=json.loads(res.text)
+    if(result['message']!="SUCCESS"):
+        x=0/0
 
 # DES加密
 def DESEncrypt(s, key='b3L26XNL'):
