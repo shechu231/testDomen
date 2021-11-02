@@ -361,7 +361,7 @@ if __name__=="__main__":
     print(account)
     accounts=account.split("#"); #分开用户
     for one in accounts:
-        user = {'user': {'type': 1, 'schoolName': '宜宾学院', 'username': '', 'password': '', 'address': '四川省/宜宾市/翠屏区/临港校区', 'sendKey': '', 'lon': 104.616858, 'lat': 28.793022, 'checkTitle': 1, 'proxy': '', 'isOffset': True, 'forms': [{'form': {'title': '今日具体所在地', 'value': '四川省/宜宾市/翠屏区/临港校区'}}, {'form': {'title': '是否在校', 'value': '是'}}, {'form': {'title': '上午体温', 'value': 36.2}}, {'form': {'title': '下午体温', 'value': 36.4}}, {'form': {'title': '晚上体温', 'value': 36.1}}, {'form': {'title': '身体状况', 'value': '身体健康'}}, {'form': {'title': '是否今日返校？', 'value': '否'}}]}}
+        user = {'user': {'type': 1, 'schoolName': '宜宾学院', 'username': '', 'password': '', 'address': '中国四川省成都市武侯区石羊街道锦悦西路236', 'sendKey': '', 'lon': 104.051353, 'lat': 30.57328, 'checkTitle': 1, 'proxy': '', 'isOffset': True, 'forms': [{'form': {'title': '今日具体所在地', 'value': '四川省/宜宾市/翠屏区/临港校区'}}, {'form': {'title': '是否在校', 'value': '是'}}, {'form': {'title': '上午体温', 'value': 36.2}}, {'form': {'title': '下午体温', 'value': 36.4}}, {'form': {'title': '晚上体温', 'value': 36.1}}, {'form': {'title': '身体状况', 'value': '身体健康'}}, {'form': {'title': '是否今日返校？', 'value': '否'}}]}}
         account=one.split("pwd:")#分开用户账号和密码
         #print(account)
         user['user']["username"]=account[0]
