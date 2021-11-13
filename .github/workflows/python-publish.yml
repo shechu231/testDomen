@@ -15,7 +15,7 @@ on:
    branches: [ master ]
   workflow_dispatch:
   schedule:
-   - cron: "0 21,12 * * *" 
+   - cron: "0 1 * * *" 
 jobs:
   build:
 
