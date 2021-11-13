@@ -355,7 +355,7 @@ if __name__=="__main__":
     print("联网成功")
 
     
-    users={'author': '若离QQ：2909998156', 'sendType': 0, 'emailApiUrl': 'https://api.ruoli.cc/sendMail', 'myQmsgKey': '', 'encryptApi': 'https://api.ruoli.cc/wise/getEncryption', 'users': []}
+    users={'encryptApi': 'https://api.ruoli.cc/wise/getEncryption', 'users': []}
     
     account=sys.argv[1] #获取参数
     print(account)
